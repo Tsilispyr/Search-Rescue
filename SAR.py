@@ -20,6 +20,7 @@ import math
 import heapq
 import json
 import collections
+import os
 
 
 # ΣΤΑΘΕΡΕΣ ΚΑΙ ΠΑΡΑΜΕΤΡΟΙ
@@ -332,6 +333,90 @@ class ParallelSearchPattern:
         return path
 
 
+# ΣΥΝΑΡΤΗΣΕΙΣ ΔΙΑΧΕΙΡΙΣΗΣ ΣΤΑΤΙΣΤΙΚΩΝ
+
+def load_ground_robot_stats():
+    """ Φορτώνει τα στατιστικά του επίγειου ρομπότ από το JSON αρχείο. """
+    stats_file = "ground_robot_stats.json"
+    
+    default_stats = {
+        "total_missions": 0,
+        "successful_missions": 0,
+        "failed_missions": 0,
+        "partial_missions": 0,
+        "success_rate": 0.0,
+        "average_time": 0.0,
+        "best_time": float('inf'),
+        "total_collectibles_found": 0,
+        "total_enemies_encountered": 0
+    }
+    
+    try:
+        if os.path.exists(stats_file):
+            with open(stats_file, 'r', encoding='utf-8') as f:
+                stats = json.load(f)
+                # Ενημέρωση με νέα πεδία αν δεν υπάρχουν
+                for key, value in default_stats.items():
+                    if key not in stats:
+                        stats[key] = value
+                return stats
+        else:
+            # Δημιουργία νέου αρχείου με προεπιλεγμένα στατιστικά
+            save_ground_robot_stats(default_stats)
+            return default_stats
+    except (json.JSONDecodeError, IOError):
+        return default_stats
+
+def save_ground_robot_stats(stats):
+    """ Αποθηκεύει τα στατιστικά του επίγειου ρομπότ στο JSON αρχείο. """
+    stats_file = "ground_robot_stats.json"
+    
+    try:
+        with open(stats_file, 'w', encoding='utf-8') as f:
+            json.dump(stats, f, indent=2, ensure_ascii=False)
+    except IOError as e:
+        print(f"Σφάλμα αποθήκευσης στατιστικών: {e}")
+
+def update_ground_robot_stats(result, mission_time, collectibles_found, enemies_count):
+    """ Ενημερώνει τα στατιστικά του επίγειου ρομπότ. """
+    stats = load_ground_robot_stats()
+    
+    # Ενημέρωση μετρητών αποστολών
+    stats["total_missions"] += 1
+    
+    if result == "success":
+        stats["successful_missions"] += 1
+    elif result == "failed":
+        stats["failed_missions"] += 1
+    elif result == "partial":
+        stats["partial_missions"] += 1
+    
+    # Υπολογισμός ποσοστού επιτυχίας
+    if stats["total_missions"] > 0:
+        stats["success_rate"] = (stats["successful_missions"] / stats["total_missions"]) * 100
+    
+    # Ενημέρωση χρόνου
+    if stats["average_time"] == 0:
+        stats["average_time"] = mission_time
+    else:
+        # Υπολογισμός νέου μέσου όρου
+        total_time = stats["average_time"] * (stats["total_missions"] - 1) + mission_time
+        stats["average_time"] = total_time / stats["total_missions"]
+    
+    # Καλύτερος χρόνος
+    if result == "success" and mission_time < stats["best_time"]:
+        stats["best_time"] = mission_time
+    
+    # Ενημέρωση συλλεγμένων αντικειμένων και εχθρών
+    stats["total_collectibles_found"] += collectibles_found
+    stats["total_enemies_encountered"] += enemies_count
+    
+    # Αποθήκευση
+    save_ground_robot_stats(stats)
+    
+    return stats
+
+
 # ΚΥΡΙΑ ΚΛΑΣΗ ΠΑΙΧΝΙΔΙΟΥ
 
 class Game:
@@ -356,6 +441,7 @@ class Game:
         self.clock = pygame.time.Clock()
         self.font = pygame.font.SysFont("Arial", 20)
         self.running = True
+        self.paused = False  # Κατάσταση παύσης
         
         # Εκκίνηση νέας αποστολής
         self.setup_new_mission()
@@ -384,6 +470,7 @@ class Game:
         self.mission_complete = False
         self.mission_failed = False
         self.mission_partial = False
+        self.paused = False  # Επαναφορά κατάστασης παύσης
         self.start_time = pygame.time.get_ticks()
         self.final_time = 0
         
@@ -661,8 +748,8 @@ class Game:
         while self.running:
             self.handle_events()
             
-            # Ενημέρωση κατάστασης μόνο αν η αποστολή δεν έχει τελειώσει
-            if not any([self.mission_complete, self.mission_failed, self.mission_partial]):
+            # Ενημέρωση κατάστασης μόνο αν η αποστολή δεν έχει τελειώσει και δεν είναι σε παύση
+            if not any([self.mission_complete, self.mission_failed, self.mission_partial]) and not self.paused:
                 updates.get(self.game_mode, self.update_ground)()
             
             # Σχεδιασμός και ενημέρωση οθόνης
@@ -680,6 +767,7 @@ class Game:
         Χείριση events από το χρήστη.
         ESC: επιστροφή στο μενού
         R: επανεκκίνηση αποστολής
+        SPACE: παύση/συνέχεια παιχνιδιού
         """
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -690,6 +778,10 @@ class Game:
                 if event.key == pygame.K_ESCAPE:
                     self.running = False
                     self.back_to_menu = True
+                
+                if event.key == pygame.K_SPACE:
+                    # Παύση/συνέχεια παιχνιδιού
+                    self.paused = not self.paused
                 
                 if (event.key == pygame.K_r and 
                     not any([self.mission_complete, self.mission_failed, self.mission_partial])):
@@ -748,7 +840,17 @@ class Game:
         threats = []
         for o in dynamic_obstacles:
             turns_to_reach = self.turns_to_reach((o.x, o.y), pos)
-            max_turns = o.detection_radius if isinstance(o, AggressiveObstacle) else 2
+            # Βελτιωμένη λογική απειλών
+            if isinstance(o, AggressiveObstacle):
+                # Για επιθετικούς εχθρούς: μεγαλύτερο εύρος απειλής
+                max_turns = o.detection_radius + 2
+                # Επιπλέον έλεγχος αν ο εχθρός είναι σε λειτουργία attack
+                if o.mode == 'attack':
+                    max_turns += 1
+            else:
+                # Για εχθρούς περιπολίας: μικρότερο εύρος απειλής
+                max_turns = 3
+            
             if turns_to_reach <= max_turns:
                 threats.append(o)
         
@@ -1023,17 +1125,32 @@ class Game:
         # Ποινές για εχθρούς
         for obs in getattr(self, 'dynamic_obstacles', []):
             if isinstance(obs, AggressiveObstacle):
-                # Επιθετικοί εχθροί: υψηλό κόστος στην περιοχή εντοπισμού
-                r, base_cost, adjacent_cost = obs.detection_radius, 5000, 1500
-                for dy in range(-r, r + 1):
-                    for dx in range(-r, r + 1):
+                # Επιθετικοί εχθροί: βελτιωμένη αποφυγή με μεγαλύτερο εύρος επιρροής
+                r = obs.detection_radius
+                # Αύξηση του εύρους επιρροής για καλύτερη αποφυγή
+                extended_radius = r + 2 if not escape else r + 4
+                
+                for dy in range(-extended_radius, extended_radius + 1):
+                    for dx in range(-extended_radius, extended_radius + 1):
                         nx, ny = obs.x + dx, obs.y + dy
                         if 0 <= nx < GRID_WIDTH_CELLS and 0 <= ny < GRID_HEIGHT_CELLS:
                             dist = abs(dx) + abs(dy)
+                            
+                            # Κλιμακωτό κόστος βάσει απόστασης
                             if dist == 0:
-                                cost_map[ny][nx] += base_cost
-                            elif dist == 1:
-                                cost_map[ny][nx] += adjacent_cost
+                                cost_map[ny][nx] += 8000  # Αυξημένο κόστος στο κέντρο
+                            elif dist <= 1:
+                                cost_map[ny][nx] += 3000  # Υψηλό κόστος γύρω από εχθρό
+                            elif dist <= 2:
+                                cost_map[ny][nx] += 1500  # Μεσαίο κόστος
+                            elif dist <= r:
+                                cost_map[ny][nx] += 800   # Χαμηλότερο κόστος στην περιοχή εντοπισμού
+                            elif dist <= extended_radius:
+                                cost_map[ny][nx] += 300   # Πολύ χαμηλό κόστος στο εκτεταμένο εύρος
+                            
+                            # Επιπλέον ποινή αν ο εχθρός είναι σε λειτουργία attack
+                            if obs.mode == 'attack':
+                                cost_map[ny][nx] += 2000
             else:
                 # Εχθροί περιπολίας: κόστος γύρω από τη θέση τους
                 cost_map[obs.y][obs.x] += 2500
@@ -1053,7 +1170,7 @@ class Game:
     
     def a_star(self, start, end, restricted, cost_map=None):
         """
-        Υλοποίηση A* αλγορίθμου για εύρεση βέλτιστης διαδρομής.
+        Βελτιωμένη υλοποίηση A* αλγορίθμου για εύρεση βέλτιστης διαδρομής.
         start: σημείο εκκίνησης
         end: σημείο τερματισμού
         restricted: τύποι κελιών που δεν μπορεί να περάσει
@@ -1082,8 +1199,11 @@ class Game:
                 continue
             closed.add(c_node.position)
             
-            # Εξερεύνηση γειτονικών κελιών
-            for move in [(0, -1), (0, 1), (-1, 0), (1, 0)]:
+            # Εξερεύνηση γειτονικών κελιών (μόνο καρδινάλες κινήσεις)
+            # Καρδινάλες κινήσεις (πάνω, κάτω, αριστερά, δεξιά)
+            cardinal_moves = [(0, -1), (0, 1), (-1, 0), (1, 0)]
+            
+            for move in cardinal_moves:
                 pos = (c_node.position[0] + move[0], c_node.position[1] + move[1])
                 
                 if (not (0 <= pos[0] < GRID_WIDTH_CELLS and 0 <= pos[1] < GRID_HEIGHT_CELLS) or
@@ -1091,11 +1211,13 @@ class Game:
                     pos in closed):
                     continue
                 
+                # Υπολογισμός κόστους κίνησης (πάντα 1.0 για καρδινάλες κινήσεις)
                 new_g = g_costs.get(c_node.position, float('inf')) + cost_map[pos[1]][pos[0]]
                 
                 if new_g < g_costs.get(pos, float('inf')):
                     g_costs[pos] = new_g
-                    h = abs(pos[0] - end[0]) + abs(pos[1] - end[1])  # Manhattan distance
+                    # Manhattan distance ευρετική (πιο κατάλληλη για καρδινάλες κινήσεις)
+                    h = abs(pos[0] - end[0]) + abs(pos[1] - end[1])
                     heapq.heappush(nodes, (new_g + h, Node(pos, c_node)))
         
         return None, float('inf')
@@ -1119,6 +1241,22 @@ class Game:
             
             if self.total_collectibles > 0 and (collected / self.total_collectibles) > 0.7:
                 result = "partial"
+        
+        # Ενημέρωση στατιστικών μόνο για επίγειο ρομπότ
+        if self.game_mode == "ground":
+            collectibles_found = 0
+            enemies_count = 0
+            
+            # Υπολογισμός συλλεγμένων αντικειμένων
+            if hasattr(self, 'total_collectibles') and hasattr(self, 'collectibles'):
+                collectibles_found = self.total_collectibles - len(self.collectibles)
+            
+            # Υπολογισμός αριθμού εχθρών
+            if hasattr(self, 'num_patrol') and hasattr(self, 'num_aggressive'):
+                enemies_count = self.num_patrol + self.num_aggressive
+            
+            # Ενημέρωση στατιστικών
+            update_ground_robot_stats(result, self.final_time, collectibles_found, enemies_count)
         
         # Ορισμός τελικού αποτελέσματος
         if result == "success":
@@ -1277,16 +1415,34 @@ class Game:
             targets_text = self.font.render(f"Targets: {collected} / {self.total_collectibles}", True, WHITE)
             self.screen.blit(targets_text, (150, 10))
         
-        # Εχθροί (μόνο για επίγειο σενάριο)
+        # Εχθροί και στατιστικά (μόνο για επίγειο σενάριο)
         if self.game_mode == "ground":
             enemies_text = self.font.render(f"Enemies: {self.num_patrol + self.num_aggressive} ({self.num_patrol}P, {self.num_aggressive}A)", True, WHITE)
             self.screen.blit(enemies_text, (SCREEN_WIDTH - 250, 10))
+            
+            # Εμφάνιση στατιστικών επιτυχίας
+            stats = load_ground_robot_stats()
+            if stats["total_missions"] > 0:
+                success_text = self.font.render(f"Success Rate: {stats['success_rate']:.1f}% ({stats['successful_missions']}/{stats['total_missions']})", True, (0, 255, 0))
+                self.screen.blit(success_text, (10, 40))
+                
+                if stats["best_time"] != float('inf'):
+                    best_time_text = self.font.render(f"Best Time: {stats['best_time']}s", True, (255, 255, 0))
+                    self.screen.blit(best_time_text, (10, 70))
         
         # Μήνυμα εντοπισμού στόχου
         if hasattr(self, 'target_found_message') and self.target_found_message:
             msg_surf = self.font.render(self.target_found_message, True, (0, 255, 0))
             rect = msg_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 20))
             self.screen.blit(msg_surf, rect)
+        
+        # Μήνυμα παύσης
+        if self.paused:
+            pause_msg = "PAUSED - Press SPACE to continue"
+            pause_surf = self.font.render(pause_msg, True, (255, 255, 0))
+            rect = pause_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
+            pygame.draw.rect(self.screen, BLACK, rect.inflate(20, 10))
+            self.screen.blit(pause_surf, rect)
         
         # Μήνυμα αποτελέσματος αποστολής
         msg, color = ("", (0, 0, 0))
@@ -1297,7 +1453,7 @@ class Game:
         elif self.mission_failed:
             msg, color = "APOSTOLI APETYXE! (R for New)", (255, 0, 0)
         
-        if msg:
+        if msg and not self.paused:
             msg_surf = self.font.render(msg, True, color)
             rect = msg_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
             pygame.draw.rect(self.screen, BLACK, rect.inflate(20, 10))
@@ -1308,7 +1464,7 @@ class Game:
 
 def main_menu():
     """ Κύριο μενού επιλογής σεναρίου αποστολής. Επιστρέφει το επιλεγμένο τρόπο παιχνιδιού ή None για έξοδο. """
-    screen = pygame.display.set_mode((550, 400))
+    screen = pygame.display.set_mode((550, 450))
     pygame.display.set_caption("SAR - Κεντρικό Μενού")
     font = pygame.font.SysFont("Arial", 24)
     selected = 0
@@ -1320,9 +1476,10 @@ def main_menu():
         "3. Αποστολή Υδάτινου",
         "4. Drone + Επίγειο (Cooperative)",
         "5. Drone + Υδάτινο",
-        "6. Όλα Μαζί (Λίμνη)"
+        "6. Όλα Μαζί (Λίμνη)",
+        "7. Στατιστικά Επίγειου Ρομπότ"  # Νέα επιλογή
     ]
-    keys = ["ground", "single_drone", "single_aquatic", "coop_ground_drone", "drone_aquatic", "all_agents"]
+    keys = ["ground", "single_drone", "single_aquatic", "coop_ground_drone", "drone_aquatic", "all_agents", "stats"]
     
     while True:
         screen.fill(MENU_BG_COLOR)
@@ -1454,12 +1611,99 @@ def enemy_selection_menu():
         
         clock.tick(30)
 
+def show_ground_robot_stats():
+    """ Εμφανίζει τα στατιστικά του επίγειου ρομπότ σε ξεχωριστό παράθυρο. """
+    screen = pygame.display.set_mode((600, 500))
+    pygame.display.set_caption("SAR - Στατιστικά Επίγειου Ρομπότ")
+    font_large = pygame.font.SysFont("Arial", 28)
+    font_medium = pygame.font.SysFont("Arial", 20)
+    font_small = pygame.font.SysFont("Arial", 16)
+    clock = pygame.time.Clock()
+    
+    # Φόρτωση στατιστικών μία φορά, πριν τον βρόχο.
+    stats = load_ground_robot_stats()
+    
+    while True:
+        screen.fill(MENU_BG_COLOR)
+        
+        # Τίτλος
+        title = font_large.render("Στατιστικά Επίγειου Ρομπότ", True, (255, 255, 0))
+        screen.blit(title, title.get_rect(center=(300, 40)))
+        
+        y_pos = 100
+        
+        # Βασικά στατιστικά
+        if stats["total_missions"] > 0:
+            # Συνολικές αποστολές
+            total_text = font_medium.render(f"Συνολικές Αποστολές: {stats['total_missions']}", True, MENU_TEXT_COLOR)
+            screen.blit(total_text, (50, y_pos))
+            y_pos += 40
+            
+            # Επιτυχημένες αποστολές
+            success_text = font_medium.render(f"Επιτυχημένες: {stats['successful_missions']}", True, (0, 255, 0))
+            screen.blit(success_text, (50, y_pos))
+            y_pos += 40
+            
+            # Αποτυχημένες αποστολές
+            failed_text = font_medium.render(f"Αποτυχημένες: {stats['failed_missions']}", True, (255, 0, 0))
+            screen.blit(failed_text, (50, y_pos))
+            y_pos += 40
+            
+            # Μερικές επιτυχίες
+            partial_text = font_medium.render(f"Μερικές Επιτυχίες: {stats['partial_missions']}", True, (255, 255, 0))
+            screen.blit(partial_text, (50, y_pos))
+            y_pos += 40
+            
+            # Ποσοστό επιτυχίας
+            rate_text = font_medium.render(f"Ποσοστό Επιτυχίας: {stats['success_rate']:.1f}%", True, (0, 255, 255))
+            screen.blit(rate_text, (50, y_pos))
+            y_pos += 40
+            
+            # Μέσος χρόνος
+            avg_time_text = font_medium.render(f"Μέσος Χρόνος: {stats['average_time']:.1f} δευτερόλεπτα", True, MENU_TEXT_COLOR)
+            screen.blit(avg_time_text, (50, y_pos))
+            y_pos += 40
+            
+            # Καλύτερος χρόνος
+            if stats["best_time"] != float('inf'):
+                best_time_text = font_medium.render(f"Καλύτερος Χρόνος: {stats['best_time']} δευτερόλεπτα", True, (255, 215, 0))
+                screen.blit(best_time_text, (50, y_pos))
+                y_pos += 40
+            
+            # Συλλεγμένα αντικείμενα
+            collectibles_text = font_medium.render(f"Συλλεγμένα Αντικείμενα: {stats['total_collectibles_found']}", True, (255, 165, 0))
+            screen.blit(collectibles_text, (50, y_pos))
+            y_pos += 40
+            
+            # Εχθροί που αντιμετώπισε
+            enemies_text = font_medium.render(f"Εχθροί που Αντιμετώπισε: {stats['total_enemies_encountered']}", True, (255, 100, 100))
+            screen.blit(enemies_text, (50, y_pos))
+        else:
+            # Μήνυμα αν δεν υπάρχουν στατιστικά
+            no_stats_text = font_medium.render("Δεν υπάρχουν στατιστικά ακόμα.", True, MENU_TEXT_COLOR)
+            screen.blit(no_stats_text, no_stats_text.get_rect(center=(300, 200)))
+            no_stats_text2 = font_medium.render("Παίξτε μερικές αποστολές επίγειου ρομπότ!", True, MENU_TEXT_COLOR)
+            screen.blit(no_stats_text2, no_stats_text2.get_rect(center=(300, 240)))
+            
+        # Οδηγίες
+        instr_text = font_small.render("Πατήστε ESC για επιστροφή στο μενού", True, (200, 200, 200))
+        screen.blit(instr_text, instr_text.get_rect(center=(300, 450)))
+        
+        pygame.display.flip()
+        
+        # Χείριση events
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return "quit"
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                return None
+        
+        clock.tick(30)
 
 # ΚΥΡΙΟ ΠΡΟΓΡΑΜΜΑ
 
 def main():
-    """ Κύρια συνάρτηση του προγράμματος.
-    Διαχειρίζεται το μενού και την εκκίνηση των αποστολών. """
+    """ Κύρια συνάρτηση του προγράμματος. """
     pygame.init()
     
     while True:
@@ -1468,9 +1712,15 @@ def main():
         if game_mode is None:
             break
         
-        params = {"game_mode": game_mode}
+        # Εμφάνιση στατιστικών αν επιλέχθηκε
+        if game_mode == "stats":
+            result = show_ground_robot_stats()
+            if result == "quit":
+                break
+            continue
         
         # Ρύθμιση εχθρών για επίγειο σενάριο
+        params = {"game_mode": game_mode}
         if game_mode == "ground":
             enemy_settings = enemy_selection_menu()
             if enemy_settings is None:
@@ -1507,7 +1757,7 @@ def main():
         game = Game(**params)
         if not game.run():
             break
-    
+            
     pygame.quit()
 
 if __name__ == '__main__':
