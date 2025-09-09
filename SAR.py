@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 SAR - Search and Rescue Simulation System
 Σύστημα προσομοίωσης για διαχείριση αυτόνομων οχημάτων σε αποστολές έρευνας και διάσωσης
@@ -626,7 +626,7 @@ class Game:
         # Δημιουργία υδάτινου χάρτη
         self.game_map = [[TILE_TYPE_WATER] * GRID_WIDTH_CELLS for _ in range(GRID_HEIGHT_CELLS)]
         for _ in range(70):
-            x, y = random.randint(0, GRID_HEIGHT_CELLS - 1), random.randint(0, GRID_WIDTH_CELLS - 1)
+            x, y = random.randint(0, GRID_WIDTH_CELLS - 1), random.randint(0, GRID_HEIGHT_CELLS - 1)
             self.game_map[y][x] = TILE_TYPE_OBSTACLE
         
         # Δημιουργία οχημάτων
@@ -670,7 +670,7 @@ class Game:
         
         # Προσθήκη εμποδίων
         for _ in range(80):
-            x, y = random.randint(0, GRID_HEIGHT_CELLS - 1), random.randint(0, GRID_WIDTH_CELLS - 1)
+            x, y = random.randint(0, GRID_WIDTH_CELLS - 1), random.randint(0, GRID_HEIGHT_CELLS - 1)
             self.game_map[y][x] = TILE_TYPE_OBSTACLE
         
         # Δημιουργία οχημάτων
