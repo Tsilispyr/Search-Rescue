@@ -339,6 +339,7 @@ def load_ground_robot_stats():
     """ Φορτώνει τα στατιστικά του επίγειου ρομπότ από το JSON αρχείο. """
     stats_file = "ground_robot_stats.json"
     
+    # Προεπιλεγμένα στατιστικά
     default_stats = {
         "total_missions": 0,
         "successful_missions": 0,
@@ -352,19 +353,25 @@ def load_ground_robot_stats():
     }
     
     try:
+        print(f"Ψάχνω για αρχείο: {os.path.abspath(stats_file)}")
         if os.path.exists(stats_file):
+            print("Αρχείο βρέθηκε, φορτώνω...")
             with open(stats_file, 'r', encoding='utf-8') as f:
                 stats = json.load(f)
                 # Ενημέρωση με νέα πεδία αν δεν υπάρχουν
                 for key, value in default_stats.items():
                     if key not in stats:
                         stats[key] = value
+                print(f"Φορτώθηκαν στατιστικά: {stats['total_missions']} αποστολές")
                 return stats
         else:
+            print("Αρχείο δεν υπάρχει, δημιουργώ νέο...")
             # Δημιουργία νέου αρχείου με προεπιλεγμένα στατιστικά
             save_ground_robot_stats(default_stats)
+            print("Νέο αρχείο δημιουργήθηκε!")
             return default_stats
-    except (json.JSONDecodeError, IOError):
+    except (json.JSONDecodeError, IOError) as e:
+        print(f"Σφάλμα φόρτωσης στατιστικών: {e}")
         return default_stats
 
 def save_ground_robot_stats(stats):
@@ -372,8 +379,10 @@ def save_ground_robot_stats(stats):
     stats_file = "ground_robot_stats.json"
     
     try:
+        print(f"Αποθηκεύω στατιστικά στο: {os.path.abspath(stats_file)}")
         with open(stats_file, 'w', encoding='utf-8') as f:
             json.dump(stats, f, indent=2, ensure_ascii=False)
+        print("Στατιστικά αποθηκεύτηκαν επιτυχώς!")
     except IOError as e:
         print(f"Σφάλμα αποθήκευσης στατιστικών: {e}")
 
@@ -626,8 +635,8 @@ class Game:
         # Δημιουργία υδάτινου χάρτη
         self.game_map = [[TILE_TYPE_WATER] * GRID_WIDTH_CELLS for _ in range(GRID_HEIGHT_CELLS)]
         for _ in range(70):
-            x, y = random.randint(0, GRID_WIDTH_CELLS - 1), random.randint(0, GRID_HEIGHT_CELLS - 1)
-            self.game_map[y][x] = TILE_TYPE_OBSTACLE
+            x, y = random.randint(0, GRID_HEIGHT_CELLS - 1), random.randint(0, GRID_WIDTH_CELLS - 1)
+            self.game_map[x][y] = TILE_TYPE_OBSTACLE
         
         # Δημιουργία οχημάτων
         self.drone = Drone(GRID_WIDTH_CELLS // 2, 2)
@@ -1415,26 +1424,40 @@ class Game:
             targets_text = self.font.render(f"Targets: {collected} / {self.total_collectibles}", True, WHITE)
             self.screen.blit(targets_text, (150, 10))
         
-        # Εχθροί και στατιστικά (μόνο για επίγειο σενάριο)
+        # Εχθροί (μόνο για επίγειο σενάριο)
         if self.game_mode == "ground":
             enemies_text = self.font.render(f"Enemies: {self.num_patrol + self.num_aggressive} ({self.num_patrol}P, {self.num_aggressive}A)", True, WHITE)
             self.screen.blit(enemies_text, (SCREEN_WIDTH - 250, 10))
-            
-            # Εμφάνιση στατιστικών επιτυχίας
-            stats = load_ground_robot_stats()
-            if stats["total_missions"] > 0:
-                success_text = self.font.render(f"Success Rate: {stats['success_rate']:.1f}% ({stats['successful_missions']}/{stats['total_missions']})", True, (0, 255, 0))
-                self.screen.blit(success_text, (10, 40))
-                
-                if stats["best_time"] != float('inf'):
-                    best_time_text = self.font.render(f"Best Time: {stats['best_time']}s", True, (255, 255, 0))
-                    self.screen.blit(best_time_text, (10, 70))
         
         # Μήνυμα εντοπισμού στόχου
         if hasattr(self, 'target_found_message') and self.target_found_message:
             msg_surf = self.font.render(self.target_found_message, True, (0, 255, 0))
             rect = msg_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT - 20))
             self.screen.blit(msg_surf, rect)
+        
+        # Στατιστικά επίγειου ρομπότ (κάτω αριστερά)
+        if self.game_mode == "ground":
+            print("Εμφανίζω στατιστικά για επίγειο ρομπότ...")
+            stats = load_ground_robot_stats()
+            stats_y = SCREEN_HEIGHT - 80  # Κάτω αριστερά
+            
+            # Debug: εμφάνιση πάντα κάποιο μήνυμα
+            debug_text = self.font.render(f"DEBUG: {stats['total_missions']} missions", True, (255, 255, 255))
+            self.screen.blit(debug_text, (10, stats_y - 30))
+            
+            if stats["total_missions"] > 0:
+                # Ποσοστό επιτυχίας
+                success_text = self.font.render(f"Success: {stats['success_rate']:.1f}% ({stats['successful_missions']}/{stats['total_missions']})", True, (0, 255, 0))
+                self.screen.blit(success_text, (10, stats_y))
+                
+                # Καλύτερος χρόνος
+                if stats["best_time"] != float('inf'):
+                    best_time_text = self.font.render(f"Best Time: {stats['best_time']}s", True, (255, 255, 0))
+                    self.screen.blit(best_time_text, (10, stats_y + 25))
+            else:
+                # Μήνυμα αν δεν υπάρχουν στατιστικά
+                no_stats_text = self.font.render("No stats yet - Complete a mission!", True, (200, 200, 200))
+                self.screen.blit(no_stats_text, (10, stats_y))
         
         # Μήνυμα παύσης
         if self.paused:
@@ -1477,7 +1500,7 @@ def main_menu():
         "4. Drone + Επίγειο (Cooperative)",
         "5. Drone + Υδάτινο",
         "6. Όλα Μαζί (Λίμνη)",
-        "7. Στατιστικά Επίγειου Ρομπότ"  # Νέα επιλογή
+        "7. Στατιστικά Επίγειου Ρομπότ"
     ]
     keys = ["ground", "single_drone", "single_aquatic", "coop_ground_drone", "drone_aquatic", "all_agents", "stats"]
     
@@ -1620,15 +1643,15 @@ def show_ground_robot_stats():
     font_small = pygame.font.SysFont("Arial", 16)
     clock = pygame.time.Clock()
     
-    # Φόρτωση στατιστικών μία φορά, πριν τον βρόχο.
-    stats = load_ground_robot_stats()
-    
     while True:
         screen.fill(MENU_BG_COLOR)
         
         # Τίτλος
         title = font_large.render("Στατιστικά Επίγειου Ρομπότ", True, (255, 255, 0))
         screen.blit(title, title.get_rect(center=(300, 40)))
+        
+        # Φόρτωση στατιστικών
+        stats = load_ground_robot_stats()
         
         y_pos = 100
         
@@ -1684,7 +1707,7 @@ def show_ground_robot_stats():
             screen.blit(no_stats_text, no_stats_text.get_rect(center=(300, 200)))
             no_stats_text2 = font_medium.render("Παίξτε μερικές αποστολές επίγειου ρομπότ!", True, MENU_TEXT_COLOR)
             screen.blit(no_stats_text2, no_stats_text2.get_rect(center=(300, 240)))
-            
+        
         # Οδηγίες
         instr_text = font_small.render("Πατήστε ESC για επιστροφή στο μενού", True, (200, 200, 200))
         screen.blit(instr_text, instr_text.get_rect(center=(300, 450)))
@@ -1695,15 +1718,18 @@ def show_ground_robot_stats():
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 return "quit"
-            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return None
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    return None
         
         clock.tick(30)
+
 
 # ΚΥΡΙΟ ΠΡΟΓΡΑΜΜΑ
 
 def main():
-    """ Κύρια συνάρτηση του προγράμματος. """
+    """ Κύρια συνάρτηση του προγράμματος.
+    Διαχειρίζεται το μενού και την εκκίνηση των αποστολών. """
     pygame.init()
     
     while True:
@@ -1719,8 +1745,9 @@ def main():
                 break
             continue
         
-        # Ρύθμιση εχθρών για επίγειο σενάριο
         params = {"game_mode": game_mode}
+        
+        # Ρύθμιση εχθρών για επίγειο σενάριο
         if game_mode == "ground":
             enemy_settings = enemy_selection_menu()
             if enemy_settings is None:
@@ -1757,7 +1784,7 @@ def main():
         game = Game(**params)
         if not game.run():
             break
-            
+    
     pygame.quit()
 
 if __name__ == '__main__':
