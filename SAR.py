@@ -1458,10 +1458,31 @@ class Game:
             rect = msg_surf.get_rect(center=(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2))
             pygame.draw.rect(self.screen, BLACK, rect.inflate(20, 10))
             self.screen.blit(msg_surf, rect)
+            
+            
+ # Στατιστικά επίγειου ρομπότ (κάτω αριστερά)
+        if self.game_mode == "ground":   
+            stats = load_ground_robot_stats()
+            stats_y = SCREEN_HEIGHT - 80  # Κάτω αριστερά
+                   
+            # Debug: εμφάνιση πάντα κάποιο μήνυμα
+            debug_text = self.font.render(f"DEBUG: {stats['total_missions']} missions", True, (255, 255, 255))
+            self.screen.blit(debug_text, (10, stats_y - 30))
+            if stats["total_missions"] > 0:
+                # Ποσοστό επιτυχίας
+                success_text = self.font.render(f"Success: {stats['success_rate']:.1f}% ({stats['successful_missions']}/{stats['total_missions']})", True, (0, 255, 0))
+                self.screen.blit(success_text, (10, stats_y))
+                # Καλύτερος χρόνος
+                if stats["best_time"] != float('inf'):
+                    best_time_text = self.font.render(f"Best Time: {stats['best_time']}s", True, (255, 255, 0))
+                    self.screen.blit(best_time_text, (10, stats_y + 25))
+            else:
+# Μήνυμα αν δεν υπάρχουν στατιστικά
+                no_stats_text = self.font.render("No stats yet - Complete a mission!", True, (200, 200, 200))
+                self.screen.blit(no_stats_text, (10, stats_y))
 
 
 # ΜΕΝΟΥ
-
 def main_menu():
     """ Κύριο μενού επιλογής σεναρίου αποστολής. Επιστρέφει το επιλεγμένο τρόπο παιχνιδιού ή None για έξοδο. """
     screen = pygame.display.set_mode((550, 450))
@@ -1477,7 +1498,7 @@ def main_menu():
         "4. Drone + Επίγειο (Cooperative)",
         "5. Drone + Υδάτινο",
         "6. Όλα Μαζί (Λίμνη)",
-        "7. Στατιστικά Επίγειου Ρομπότ"  # Νέα επιλογή
+        "7. Στατιστικά Επίγειου Ρομπότ" 
     ]
     keys = ["ground", "single_drone", "single_aquatic", "coop_ground_drone", "drone_aquatic", "all_agents", "stats"]
     
